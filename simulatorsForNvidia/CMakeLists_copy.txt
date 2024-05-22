@@ -1,0 +1,83 @@
+cmake_minimum_required(VERSION 3.12)
+set(CMAKE_CXX_STANDARD 17)
+project(miniapp_simulators LANGUAGES C CXX)
+set(CMAKE_CUDA17_EXTENSION_COMPILE_OPTION "-std=c++17")
+
+include(CheckLanguage)
+
+set(CMAKE_CUDA_ARCHITECTURES 80-real)
+
+check_language(CUDA)
+enable_language(CUDA)
+
+find_package(CUDA REQUIRED)
+include_directories(
+    ${CUDA_INCLUDE_DIRS}
+    infrastructure
+    kernels
+    snap_helpers
+    utils
+    simulator2
+    simulator3
+)
+
+find_package(CUDAToolkit REQUIRED COMPONENTS C CXX)
+
+list(APPEND CMAKE_PREFIX_PATH "/opt/cray/pe/mpich/8.1.17/ofi/gnu/9.1")
+find_package(MPI REQUIRED COMPONENTS C CXX)
+
+set(MPICH_GTL_LIBS $ENV{CRAY_MPICH_ROOTDIR}/gtl/lib/libmpi_gtl_cuda.so)
+set(MPICH_INCLUDE_DIRECTORY $ENV{MPICH_DIR}/include)
+set(MPICH_LIBRARY_PATH $ENV{MPICH_DIR}/lib/libmpi.so)
+set(CUDA_CUDA_STUB_LIBS ${CUDAToolkit_LIBRARY_ROOT}/targets/x86_64-linux/lib/stubs/libcuda.so)
+
+add_compile_options(-DCRAY_ACCEL_TARGET="nvidia80")
+
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+
+find_package(ZFP REQUIRED NAMES zfp)                                                                                                                                                                                                  
+if(CMAKE_SYSTEM_NAME STREQUAL "CrayLinuxEnvironment")                                                                                                                                                                                 
+    set(ZFP_LIBRARIES "llnl::zfp")                                                                                                                                                                                                    
+else()                                                                                                                                                                                                                                
+    # Using the spack/Systems version of zfp                                                                                                                                                                                          
+    # should eventually unify on this version rather than llnl::zfp in geophy                                                                                                                                                         
+    set(ZFP_LIBRARIES "zfp::zfp")                                                                                                                                                                                                     
+endif() 
+
+file (GLOB infrastructure_SOURCES CONFIGURE_DEPENDS "infrastructure/*.cpp" "infrastructure/*.cu" "infrastructure/*.cuh")
+file (GLOB snap_helpers_SOURCES CONFIGURE_DEPENDS "snap_helpers/*.cpp" "snap_helpers/*.cu")
+file (GLOB utils_SOURCES CONFIGURE_DEPENDS "utils/*.cpp" "utils/*.cu")
+file (GLOB kernels_SOURCES CONFIGURE_DEPENDS "kernels/*.cpp" "kernels/*.cu")
+
+file (GLOB simulator2_SOURCES CONFIGURE_DEPENDS "simulator2/*.cu")
+file (GLOB simulator3_SOURCES CONFIGURE_DEPENDS "simulator3/*.cu")
+
+set (project_INCLUDE_DIRS infrastructure kernels snap_helpers utils simulator1 simulator2 simulator3)
+set (simulator3_INCLUDE_DIRS infrastructure snap_helpers utils simulator3)
+
+add_executable(miniapp_simulator2 
+    ${simulator2_SOURCES}
+    ${infrastructure_SOURCES}
+    ${snap_helpers_SOURCES}
+    ${utils_SOURCES}
+    ${kernels_SOURCES}
+)
+
+target_include_directories(miniapp_simulator2 PUBLIC ${project_INCLUDE_DIRS} ${MPICH_INCLUDE_DIRECTORY})
+
+target_link_libraries(miniapp_simulator2 PRIVATE  ${CUDA_CUDA_STUB_LIBS} ${MPICH_GTL_LIBS} ${MPICH_LIBRARY_PATH} ${ZFP_LIBRARIES})
+
+add_executable(miniapp_simulator3 
+    ${simulator3_SOURCES}
+    ${infrastructure_SOURCES}
+    ${snap_helpers_SOURCES}
+    ${utils_SOURCES}
+)
+
+target_include_directories(miniapp_simulator3 PUBLIC ${simulator3_INCLUDE_DIRS} ${MPICH_INCLUDE_DIRECTORY})
+
+target_link_libraries(miniapp_simulator3 PRIVATE  ${CUDA_CUDA_STUB_LIBS} ${MPICH_GTL_LIBS} ${MPICH_LIBRARY_PATH} ${ZFP_LIBRARIES})
